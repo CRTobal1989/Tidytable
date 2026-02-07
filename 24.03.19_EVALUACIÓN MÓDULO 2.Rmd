@@ -1,0 +1,1243 @@
+---
+title: "24.03.19_EVALUACIÓN MÓDULO 2"
+author: "Cristóbal León-Salas"
+date: "2024-03-19"
+output: html_document
+---
+
+```{r 00. Carga de librerias}
+
+suppressWarnings(suppressPackageStartupMessages(library(tidytable)))
+suppressWarnings(suppressPackageStartupMessages(library(data.table)))
+suppressWarnings(suppressPackageStartupMessages(library(ggplot2)))
+suppressWarnings(suppressPackageStartupMessages(library(stringr)))
+suppressWarnings(suppressPackageStartupMessages(library(formattable)))
+suppressWarnings(suppressPackageStartupMessages(library(skimr)))
+suppressWarnings(suppressPackageStartupMessages(library(mice)))
+suppressWarnings(suppressPackageStartupMessages(library(dplyr)))
+suppressWarnings(suppressPackageStartupMessages(library(corrplot)))
+suppressWarnings(suppressPackageStartupMessages(library(purrr)))
+suppressWarnings(suppressPackageStartupMessages(library(gridExtra)))
+
+```
+
+```{r 00. Lectura de datos}
+df_lego=fread("Y:/05. Formación/02_Master de Big Data/04_CURSO/05_EXÁMENES/03_EVALUACIONES 2024/02_Modulo 2/lego_population_cof.csv")
+```
+
+
+```{r 01. Evaluación de las variables del dataframe}
+
+str(df_lego)
+
+#2307 observaciones.
+#16 variables: 4 de tipo entero, 10 de tipo caracter y 2 lógicas
+
+#Analizo cada una de las variables con la función "summary":
+
+summary(df_lego)
+
+# V1: El valor que indica es el mismo que el número de la observación. Por tanto, sería recomendable cambiar el nombre de la variable.
+# Item_Number: Representa el código de cada pieza.Muchas celdas sin info. Los valores con los que contamos, no se miden en las mismas unidades. Algunos en €... Estos valores deberian representarse como enteros
+# Set_Name: Representa el nombre del set al que pertenece esta pieza. Muchos valores NA
+# Amazon_Price: Representa el coste de la pieza en Amazon.Muchos valores NA y vacíos. Es de tipo carácter. Seguramente se cambie a numérico.
+# Year: Año, entiendo que de fabricación, no se especifíca. Muchos valores NA, en concreto 974 (42.2% de los datos)
+# Pages: Todos los datos son NAs. Esta variable se va a eliminar de la muestra al no aportar información alguna.
+# Unique_pieces: Exactamente no reconozco que significa, el número de piezas únicas que tiene esta observación?. Contiene muchos NAs, 1008 (43.69%).
+# Theme: Representa la temática que tiene cada pieza lego. Muchos valores NA.
+# Pieces: Número de piezas de cada observación. Muchos valores NAs. Deberian ser de tipo entero.
+# Price: Todos los datos son NAs. ¿Puede ser que los datos se hayan trasladado a la variable item_Number? Se recuerda que muchos valores de esta última variable estaban expresados en €....
+# Ages: Representa la edad a la que esta referida cada pieza. Se tratará como factor y se analizará a través de este. En primer lugar, voy a cambiar el nombre de los datos Ages_NA, por NA simplemente para una mejor identificación.
+# Minifigures: Representa el número de minifiguras asociadas a cada observación. 1398 NAs ()
+# Packaging: Se tratará como factor y se analizará a través de este. Muchos NAs.
+# Weight: Peso. Muchos NAs. Esta expresado en kg y lb. Debemos quedarnos con una unidad. y tratar esta variable con numérica.
+#Availability: Lugar donde se encuentra. Se trata como factor. Muchos NAs.
+#Size: Tamaño. Se trata como factor. Muchos NAs.
+
+```
+
+```{r 02. Tratamiento de las variables - V1, Item_Number y Price}
+
+#Dado que, como hemos visto anteriormente, los datos facilitados no son precisamente "limpios", procedemos a tratar los mismos con el objeto de poder trabajar con ellos fácilmente y poder sacar conclusiones analíticas. De modo que:
+
+# Variable "V1": vamos a cambiarle el nombre a "ID":
+
+df_lego <- df_lego %>% rename("ID" = "V1")
+
+# Variables "Item_Number" y "Price": 
+#En primer lugar observo el tipo de valores que contiene esta variable:
+
+Item_Number_Unique <- df_lego %>% distinct(Item_Number)
+
+#Observo: 1) valores vacios ("-"), 2) Valores referidos a euros (me hace sospechar que van a ser valores de la variable Price - se queda pendiente de analizar). Algunos también contienen en caracter * y 3) Valores enteros.
+
+# comienzo por trasladar los valores referidos en € y * a una nueva variable llamada "Precio"
+
+Precio = df_lego %>% select(ID,Item_Number) %>% filter (str_detect(Item_Number,"€")) %>% summarise(ID,Precio = as.numeric(str_remove_all(Item_Number, "€|\\*")))
+
+df_lego <- left_join(df_lego, Precio, by = "ID")
+
+#Compruebo que no se ha perdido ningun valor:
+
+sum(!is.na(df_lego$Precio))
+sum(str_detect(df_lego$Item_Number,"€"))
+
+#El resultado es el mismo, con lo cual, se puede considerar que se han trasladado los valores correctamente. Elimino ahora la variable "Price" pues ya tengo su "sustituta" dentro del dataframe:
+
+df_lego = df_lego %>% select(-Price)
+summary(df_lego)
+
+#Observo que la variable "Precio" contiene valores numéricos y el resto son NAs.
+
+#Trato ahora la variable "Item_Number" quedandome solo con los valores númericos que no han sido trasladados a la variable Precio:
+
+Numero_Item_ = df_lego %>% select(ID,Item_Number) %>% filter (str_detect(Item_Number,"-"))
+
+Numero_Item_entero = nrow(df_lego)-nrow(Numero_Item_)-nrow(Precio)
+
+#Deberia tener 1577 valores enteros. Procedo con la siguiente función:
+
+Numero_Item = df_lego %>% select(ID,Item_Number) %>% summarise(ID,Numero_Item = as.numeric(Item_Number))
+sum(!is.na(Numero_Item$Item_Number))
+
+#Da como resultado, lo anterior, por tanto, se puede confirmar que todos los valores enteros se han mantenido.
+
+df_lego <- left_join(df_lego, Numero_Item, by = "ID")
+
+#Elimino ahora la variable "Item_Number" pues ya tengo su "sustituta" dentro del dataframe:
+
+df_lego = df_lego %>% select(-Item_Number)
+
+summary(df_lego)
+
+#Se comprueba que los tratamientos de estas variables han sido exitosos.
+
+#No obstante, antes de cerrar apartado, me pregunto: ¿Para que necesito la variable Número_Item si cuento ya con la variable ID? La elimino del dataframe:
+
+df_lego = df_lego %>% select(-Numero_Item)
+
+summary(df_lego)
+
+```
+
+
+```{r 03. Tratamiento de las variables - Set_Name, Amazon_Price y Year}
+
+#En cuanto a set_Name, quiero saber cuantos tipos de nombres de set existen en el data frame, por tanto:
+
+#Genero la siguiente función:
+
+distinct_function_count <- function(data, var){
+  
+  var <- as.symbol(var)
+  counts_values_var <- data %>% group_by(!!var) %>% count %>% arrange(desc(n))
+  
+  total <- sum(counts_values_var$n)
+  counts_values_var <- counts_values_var %>% mutate(percentage = round(n / total * 100, 3))
+  
+  return(counts_values_var)
+}
+
+Set_Name_Levels = distinct_function_count (df_lego,"Set_Name")
+formattable(Set_Name_Levels)
+
+#Se observa que no hay muchas ocurrencias entre los nombres de cada uno de los set_names:
+
+#Esta variable, parece que está muy relacionada con la variable "theme". Voy a observar cuantos NAs hay en la variable "theme" si filtro por todos los valores distintos de NA en "set_name" y viceversa:
+
+nombre_set = df_lego %>% select(ID,Set_Name,Theme) %>% filter (!is.na(Set_Name))
+tema = df_lego %>% select(ID,Set_Name,Theme) %>% filter (!is.na(Theme))
+
+sum(is.na(nombre_set$Theme))
+sum(is.na(tema$Set_Name))
+nrow(nombre_set)
+nrow(tema)
+
+#Se observa que de ambas maneras, ninguna presenta NAs y ambos dataframes filtrados tienen las mismas observaciones, por lo que se concluye que ambas variables están uy relacionadas y que, por tanto se puede prescindir de una de ellas. Saco los niveles de la variable "Theme":
+
+Theme_Levels = distinct_function_count (df_lego,"Theme")
+formattable(Theme_Levels)
+
+#Contiene los niveles más "agrupados" que "set_name", por tanto elimino del dataframe esta última variable:
+
+df_lego = df_lego %>% select(- Set_Name)
+
+#Paso a evaluar la variable "Amazon_Price"
+
+Amazon_Price_Unique <- df_lego %>% distinct(Amazon_Price)
+
+#Los valores de esta variable contienen caractéres que nos van dificultar el análisis. Como arriba, los caracteres de los que se trata son "€" y "*". Se eliminan procediendo igual que antes:
+
+Precio_Amazon = df_lego %>% select(ID,Amazon_Price) %>% filter (!is.na(Amazon_Price)) %>% summarise(ID,Precio_Amazon = as.numeric(str_remove_all(Amazon_Price, "€|\\*")))
+
+df_lego <- left_join(df_lego, Precio_Amazon, by = "ID")
+
+#Elimino ahora la variable "Amazon_Price" pues ya tengo su "sustituta" dentro del dataframe:
+
+df_lego = df_lego %>% select(-Amazon_Price)
+
+#Continuo con la variable "Year". Observo cuales son los distintos niveles de esta variable:
+
+Year_Levels = distinct_function_count (df_lego,"Year")
+formattable(Year_Levels)
+
+#Dado los resultados, se aboga por no tratar, de momento, esta variable.
+
+summary(df_lego)
+
+#Convierto la variable "Year" en factor, con tres niveles: 2018, 2019 y 2020
+
+Año <- df_lego %>%
+  filter(!is.na(Year)) %>%
+  mutate(Año = as.factor(Year)) %>%
+  select(ID, Año)
+
+df_lego <- df_lego %>%
+  left_join(Año, by = "ID") %>%
+  select(-Year)
+
+summary(df_lego)
+
+#Se comprueba que los tratamientos de estas variables han sido exitosos.
+
+```
+
+```{r 04. Tratamiento de las variables - Pages, unique_pieces y Theme}
+
+#Evaluación de la variable "Pages"
+
+Pages_Levels = distinct_function_count (df_lego,"Pages")
+formattable(Pages_Levels)
+
+#Dado los resultados y observando que el 100% de los datos son ausentes, se decide eliminar la variable del estudio dado que no aporta información añguna:
+
+df_lego = df_lego %>% select(-Pages)
+
+#Evaluación de la variable "unique_pieces"
+
+unique_pieces_Levels = distinct_function_count (df_lego,"unique_pieces")
+formattable(unique_pieces_Levels)
+
+#Se trata de una variable de conteo. De momento, no voy a proceder con ningún tratamiento. No obstante, puede que más adelante se sectoricen los valores, en función de lo que se quiera analizar.
+
+#Evaluación de la variable "Theme"
+
+Theme_Levels = distinct_function_count (df_lego,"Theme")
+formattable(Theme_Levels)
+
+#Tiene pinta de ser una variable categorizada, pero dado que existen muchos niveles, de momento, no voy a hacer ningún tratamiento en esta variable.
+
+summary(df_lego)
+
+```
+
+```{r 05. Tratamiento de las variables - Pieces, Ages y Minifigures}
+
+#Evalúo las variables Pieces, Ages y Minifigures de una vez siguiendo el mismo procedimiento que antes:
+
+Pieces_Levels = distinct_function_count (df_lego,"Pieces")
+formattable(Pieces_Levels)
+
+Ages_Levels = distinct_function_count (df_lego,"Ages")
+formattable(Ages_Levels)
+
+Minifigures_Levels = distinct_function_count (df_lego,"Minifigures")
+formattable(Minifigures_Levels)
+
+#En la variable Pieces, voy a agrupar los NA, que parece que nos están definidos del mismo modo:
+#Parece que hay 12 NAs que están definidos de otro modo. Se comprueba:
+
+NA_Pieces = df_lego %>% filter (Pieces == "NA")
+
+#Dado que mis sospecha es correcta, se incluyen al otro grupo de NAs:
+
+bucket_Pieces_NA <- c("NA")
+
+df_lego <- df_lego  %>% mutate(Pieces = if_else(Pieces %in% bucket_Pieces_NA,NA,Pieces))
+
+#Se comprueba de nuevo:
+
+Pieces_Levels = distinct_function_count (df_lego,"Pieces")
+formattable(Pieces_Levels)
+
+#Ya están todos los NAs agrupados en un mismo nivel. En cuanto al resto de datos, se trata de una variable de conteo, con ocurrencias muy dispersas en cada nivel. De momento, no voy a hacer ningún tratamiento más en esta variable.
+
+#En cuanto a la variable Ages, se observa que los valores NA, no están definidos como tal, sino como "Ages_NA", por tanto, procedo a tratar estos datos de una forma similar que antes:
+
+bucket_Ages_NA <- c("Ages_NA")
+
+df_lego <- df_lego  %>% mutate(Ages = if_else(Ages %in% bucket_Ages_NA,NA,Ages))
+
+#Se comprueba de nuevo:
+
+Ages_Levels = distinct_function_count (df_lego,"Ages")
+formattable(Ages_Levels)
+
+#En cuanto al resto de datos, se trata de una variable categorizada, pero dado que existen muchos niveles, de momento, no voy a hacer ningún tratamiento en esta variable.
+
+#En cuanto a la variable "Minifigures", se trata de una variable de conteo. De momento, no voy a proceder con ningún tratamiento. No obstante, puede que más adelante se sectoricen los valores, en función de lo que se quiera analizar.
+
+summary(df_lego)
+
+#Trasnformo la variable "Pieces" a números enteros:
+
+df_lego <- df_lego  %>% mutate(Pieces = as.integer(Pieces))
+
+summary(df_lego)
+
+
+
+```
+
+```{r 06. Tratamiento de las variables - Packaging, Weight, Availability y Size}
+
+#Evalúo las variables Packaging, Weight, Availability y Size de una vez siguiendo el mismo procedimiento que antes:
+
+Packaging_Levels = distinct_function_count (df_lego,"Packaging")
+formattable(Packaging_Levels)
+
+Weight_Levels = distinct_function_count (df_lego,"Weight")
+formattable(Weight_Levels)
+
+Availability_Levels = distinct_function_count (df_lego,"Availability")
+formattable(Availability_Levels)
+
+Size_Levels = distinct_function_count (df_lego,"Size")
+formattable(Size_Levels)
+
+#Para las variables Packaging, Weight y Availability se procede igual que se hizo con la variable Ages, de modo que:
+
+df_lego <- df_lego  %>% mutate(Packaging = if_else(Packaging %in% bucket_Pieces_NA,NA,Packaging)) %>% mutate(Weight = if_else(Weight %in% bucket_Pieces_NA,NA,Weight)) %>% mutate(Availability = if_else(Availability %in% bucket_Pieces_NA,NA,Availability))
+
+#Se comprueba de nuevo:
+
+Packaging_Levels = distinct_function_count (df_lego,"Packaging")
+formattable(Packaging_Levels)
+
+Weight_Levels = distinct_function_count (df_lego,"Weight")
+formattable(Weight_Levels)
+
+Availability_Levels = distinct_function_count (df_lego,"Availability")
+formattable(Availability_Levels)
+
+#De momento, las variables "Packaging" y "Availability" no van a sufrir ningún otro tratamiento.
+
+#Sin embargo, se consideramos adecuado, tratar la variable "Weigth" de modo que podamos convertirla en numérica:
+
+df_lego <- df_lego %>%   mutate(Weight = as.numeric(str_replace(Weight, "Kg\\s*\\(.*\\)", "")))
+
+Weight_Levels = distinct_function_count (df_lego,"Weight")
+formattable(Weight_Levels)
+
+#Por último la variable "Size" se convierte en factor:
+
+Tamaño <- df_lego %>%
+  filter(!is.na(Size)) %>%
+  mutate(Tamaño = as.factor(Size)) %>%
+  select(ID, Tamaño)
+
+df_lego <- df_lego %>%
+  left_join(Tamaño, by = "ID") %>%
+  select(-Size)
+
+#Se hace un sumario de todas las variables del dataframe tras este primer tratamiento:
+
+summary(df_lego)
+str(df_lego)
+
+# Se ha un análisis más en detalle a través de la función skim:
+
+df_lego_Detalle <- skim(df_lego)
+df_lego_Detalle
+
+#Un detalle importante, se observa que las variables referidas a los precios, posiblemente las más importantes son aquellas que cuentan con un mayor número de valores ausentes. Analicemos estos valores ausentes más en detalle en el sigueitne apartado
+
+
+```
+
+```{r 07. Tratamiento de los NAs - Reducción de observaciones}
+
+#Creo una tabla, aprovechando la ejecución de la funcion skim, que me ordene de mayor a menor las variables que cuentan con un mayor número de datos NA:
+
+df_lego_missing <- df_lego_Detalle %>% 
+  mutate(n_missing_perc = 100 * round(1-complete_rate,5)) %>%
+  select(skim_type, skim_variable, n_missing, n_missing_perc) %>% 
+  arrange(desc(n_missing))
+
+formattable(df_lego_missing)
+
+#Como vimos anteriormente, ahora de manera más clara, las variables referidas a los precios, que deberian tratarse como variables objetivo, son las que más NAs tienen.
+
+# Analizo el % de NAs que tiene cada observación:
+
+df_lego_Obs_NA <- df_lego %>%
+  mutate(Num_NAs_per = 100 * rowSums(!is.na(.))/(ncol(df_lego))) %>% 
+  arrange(Num_NAs_per) %>%
+  select(ID,Num_NAs_per)
+
+formattable(df_lego_Obs_NA)
+
+#Es curioso observar que no hay ninguna observación con el 100% de los valores.
+
+#Las observaciones que más NAs tienen son las que tiene un ID más bajo.
+
+#Saco los cuartiles de esta variable:
+
+quantile(df_lego_Obs_NA$Num_NAs_per)
+
+#Dados los resultados, considero que lo adecuado es reducir las filas del dataframe y considero adecuado quedarme, como un primer flitro, con aquellas observaciones que no sean NAs en la variable "Precio_Amazon". Veamos que ocurre:
+
+df_lego_Amazon_NAN <- df_lego %>% filter (!is.na(Precio_Amazon))
+df_lego_Amazon_Detalle = skim(df_lego_Amazon_NAN)
+
+df_lego_Amazon_NAN_missing <- df_lego_Amazon_Detalle %>% 
+  mutate(n_missing_perc = 100 * round(1-complete_rate,5)) %>%
+  select(skim_type, skim_variable, n_missing, n_missing_perc) %>% 
+  arrange(desc(n_missing))
+
+formattable(df_lego_Amazon_NAN_missing)
+
+#Problema, Si filtramos por aquella observaciones que contenga valores en la variable "Precio_Amazon", resulta que ninguna otra variable cuenta con valores, por lo que este criterio no nos valdría.
+
+#Procedo ahora a filtrar del dataframe "df_lego" las observaciones que tienen valores en la variable "Precio"
+
+df_lego_Precio_NAN <- df_lego %>% filter (!is.na(Precio))
+df_lego_Precio_Detalle = skim(df_lego_Precio_NAN)
+
+df_lego_Precio_NAN_missing <- df_lego_Precio_Detalle %>% 
+  mutate(n_missing_perc = 100 * round(1-complete_rate,5)) %>%
+  select(skim_type, skim_variable, n_missing, n_missing_perc) %>% 
+  arrange(desc(n_missing))
+
+formattable(df_lego_Precio_NAN_missing)
+
+#Me topo con el mismo problema de antes. Si filtramos por aquella observaciones que contenga valores en la variable "Precio", resulta que ninguna otra variable cuenta con valores, por lo que este criterio no nos valdría tampoco.
+
+#Voy a hacer un nuevo intento para quitar observaciones y es ver que observaciones, de las observaciones que NO tienen valor en las variables "Precio_Amazon" o "Precios", presenta más NAs. Por tanto:
+
+df_lego_NA_PyPA = df_lego %>% filter (is.na(Precio)&is.na(Precio_Amazon)) %>% select (-Precio,-Precio_Amazon)
+
+#Se comprueba:
+
+sum(!is.na(df_lego_NA_PyPA$Precio))
+sum(!is.na(df_lego_NA_PyPA$Precio_Amazon))
+
+#Dado que todos son valores NA en las variables Precio y Precio_Amazon, se procede al cálculo de los % de variables NAs para cada observación:
+
+df_lego_NA_PyPA_Obs <- df_lego_NA_PyPA %>%
+  mutate(Num_NAs_per = 100 * rowSums(!is.na(.))/(ncol(df_lego_NA_PyPA))) %>% 
+  arrange(Num_NAs_per) %>%
+  select(ID,Num_NAs_per)
+
+formattable(df_lego_NA_PyPA_Obs)
+
+#Saco los cuartiles de este data_frame:
+
+quantile(df_lego_NA_PyPA_Obs$Num_NAs_per)
+
+#Me quedo pues, solo con las observaciones que tienen un 100% de variables en la tabla anterior. Por tanto:
+
+df_lego_bucket = df_lego_NA_PyPA_Obs %>% filter (Num_NAs_per == 100) %>% select (ID)
+
+#Cojo también las ID de las varibles que NO tenían NA en Precio y Precio_Amazon, por tanto:
+
+df_lego_bucket_2 = df_lego %>% filter (!is.na(Precio) | !is.na(Precio_Amazon)) %>% select (ID)
+
+#Junto ambos vectores con los ID que necesito:
+
+ID_def = rbind (df_lego_bucket,df_lego_bucket_2)
+
+df_lego = df_lego %>% filter ( ID %in% ID_def$ID)
+
+#Con esta regla he reducido el dataset en un 50% aproximadamente
+
+#Analizo cuales son las variables que más NAs tiene en este dataset:
+
+df_lego_Obs_Detalle = skim(df_lego)
+
+df_lego_Obs_Detalle_NA <- df_lego_Obs_Detalle %>% 
+  mutate(n_missing_perc = 100 * round(1-complete_rate,5)) %>%
+  select(skim_type, skim_variable, n_missing, n_missing_perc) %>% 
+  arrange(desc(n_missing))
+
+formattable(df_lego_Obs_Detalle_NA)
+
+#Todas las variables que no son Precio o Precio_Amazon tienen más de un 60% de valores ausentes. Analicemos ahora las variables categóricas.
+
+```
+
+
+```{r 08. Tratamiento de los NAs - Variables categóricas}
+
+#La principal conclusion que obtengo es que debo proceder a imputar valores NAs a las variables para poder hacer tener tipo de relación entre las variables referidas a los precios con el resto.
+
+#En primer lugar, procedo con la imputación de las variables categóricas, año y tamaño:
+
+Años_Levels = distinct_function_count (df_lego,"Año")
+formattable(Años_Levels)
+
+#En base a los resultado, los valores a ausentes de la variable "Año" se van a imputar del siguiente modo: 2020: 50%, 2019: 25% y 2018: 25%
+
+#Creo un dataframe con todos las observaciones NA de la variable "Año":
+
+df_NA_Año = df_lego %>% filter (is.na(Año))
+
+#Reparto las observaciones en 1/2, 1/4 y 1/4, como se indicaba arriba:
+
+n_1_2 = round(1/2*nrow(df_NA_Año),0)
+n_1_4_último = round(nrow(df_NA_Año) - 3/2 * n_1_2,0)
+
+df_NA_Año_1_2 = head(df_NA_Año,n_1_2)
+df_NA_Año_1_4_último = tail (df_NA_Año,n_1_4_último)
+
+#Aplico la imputación de los valores NA:
+
+df_NA_Año_1_2$Año <- replace(df_NA_Año_1_2$Año, is.na(df_NA_Año_1_2$Año),"2020")
+df_NA_Año_1_4_último$Año <- replace(df_NA_Año_1_4_último$Año, is.na(df_NA_Año_1_4_último$Año),"2019")
+
+df_NA_Año_1_2_Num_Levels = distinct_function_count (df_NA_Año_1_2,"Año")
+formattable(df_NA_Año_1_2_Num_Levels)
+df_NA_Año_1_4_último_Num_Levels = distinct_function_count (df_NA_Año_1_4_último,"Año")
+formattable(df_NA_Año_1_4_último_Num_Levels)
+
+df_int = df_lego
+
+#Creo con este dataframe intermedio, voy haciendo las imputaciones sobre todas las observaciones en función del ID:
+
+df_int <- df_int %>%
+  left_join(df_NA_Año_1_2, by = "ID") %>%
+  mutate(Año = coalesce(Año.x, Año.y)) %>%
+  select(ID,Año)
+
+df_int <- df_int %>%
+  left_join(df_NA_Año_1_4_último, by = "ID") %>%
+  mutate(Año = coalesce(Año.x, Año.y)) %>%
+  select(ID,Año)
+
+#Tras esta imputación, quedarían por imputar el tercio para el 2019, compruebo:
+
+sum(is.na(df_int))
+
+#Se comprueba que es correcto:
+
+df_int$Año <- replace(df_int$Año, is.na(df_int$Año),"2018")
+
+sum(is.na(df_int))
+
+#Paso los valores imputados al dataframe original, de modo que:
+
+df_int <- df_int %>% rename (Año_woNA = Año)
+df_lego = cbind (df_lego,Año_woNA=df_int$Año_woNA)
+df_lego = df_lego %>% select(-Año)
+
+#Declaro la nueva variable como factor
+df_lego$Año_woNA = as.factor(df_lego$Año_woNA)
+
+#Saco el resultado
+Año_woNA_Num_Levels = distinct_function_count (df_lego,"Año_woNA")
+formattable(Año_woNA_Num_Levels)
+
+#Paso ahora a evaluar la variable categórica "Tamaño"
+
+Tamaño_Levels = distinct_function_count (df_lego,"Tamaño")
+formattable(Tamaño_Levels)
+
+# Hay claramente una predominancia del factor "Small" respecto al "Large". Calculo que % hay de "Small" respecto a "Large"
+
+Perc = 100 * Tamaño_Levels [3,"n"]/(Tamaño_Levels [2,"n"]+Tamaño_Levels [3,"n"])
+
+Perc=as.numeric(Perc)
+
+# El factor "Large" es un 6% de la suma entre "Large" y "Small", por lo que voy a imputar un 6% de los NAs como "Large" y el 94% como "Small"
+
+df_NA_Tamaño = df_lego %>% filter (is.na(Tamaño))
+
+n_94 = round(0.94*nrow(df_NA_Tamaño),0)
+n_6 = nrow(df_NA_Tamaño) - n_94
+
+df_NA_Tamaño_94 = head(df_NA_Tamaño,n_94)
+df_NA_Tamaño_6 = tail (df_NA_Tamaño,n_6)
+
+#Aplico la imputación de los valores NA:
+
+df_NA_Tamaño_94$Tamaño <- replace(df_NA_Tamaño_94$Tamaño, is.na(df_NA_Tamaño_94$Tamaño),"Small")
+df_NA_Tamaño_6$Tamaño <- replace(df_NA_Tamaño_6$Tamaño, is.na(df_NA_Tamaño_6$Tamaño),"Large")
+
+df_int_2 = df_lego
+
+#Creo con este dataframe intermedio, voy haciendo las imputaciones sobre todas las observaciones en función del ID:
+
+df_int_2 <- df_int_2 %>%
+  left_join(df_NA_Tamaño_94, by = "ID") %>%
+  mutate(Tamaño = coalesce(Tamaño.x, Tamaño.y)) %>%
+  select(ID,Tamaño)
+
+df_int_2 <- df_int_2 %>%
+  left_join(df_NA_Tamaño_6, by = "ID") %>%
+  mutate(Tamaño = coalesce(Tamaño.x, Tamaño.y)) %>%
+  select(ID,Tamaño)
+
+df_int_2 <- df_int_2 %>% rename (Tamaño_woNA = Tamaño)
+df_lego = cbind (df_lego,Tamaño_woNA=df_int_2$Tamaño_woNA)
+df_lego = df_lego %>% select(-Tamaño)
+
+#Declaro la nueva variable como factor
+df_lego$Tamaño_woNA = as.factor(df_lego$Tamaño_woNA)
+
+#Saco el resultado
+
+Tamaño_woNA_Num_Levels = distinct_function_count (df_lego,"Tamaño_woNA")
+formattable(Tamaño_woNA_Num_Levels)
+
+summary(df_lego)
+
+#Procedo ahora a imputar los valores ausentes del resto de variables
+
+```
+```{r 09. Tratamiento de los NAs - Variable Unique_Pieces}
+
+#Procedo a imputar los valores NAs de las variables numéricas discretas. Comiezo por la variable "unique_pieces":
+
+unique_pieces_Num_Levels = distinct_function_count (df_lego,"unique_pieces")
+formattable(unique_pieces_Num_Levels)
+
+#Calculo los quantiles para hacer una sectorización equilibrada en esta variable. Por lo que:
+
+quantile(df_lego$unique_pieces,na.rm=TRUE)
+
+#En base a estos resultados, y con el objeto de usar "valores redondos", creo dos niveles: 1) <100 piezas únicas y 2) >100 piezas únicas:
+
+bucket_inf100 <- 0:99
+bucket_sup100 <- 100:(max(df_lego$unique_pieces,na.rm = T))
+
+df_lego<- df_lego %>% mutate(unique_pieces = if_else(unique_pieces %in% bucket_inf100, 1, unique_pieces))
+df_lego <- df_lego %>% mutate(unique_pieces = if_else(unique_pieces %in% bucket_sup100, 100, unique_pieces))
+
+#Se convierte la variable a factor:
+
+df_lego$unique_pieces = as.factor(df_lego$unique_pieces)
+
+up_woNA_Num_Levels = distinct_function_count (df_lego,"unique_pieces")
+formattable(up_woNA_Num_Levels)
+
+perc_up=as.numeric(up_woNA_Num_Levels[2,"n"]/(up_woNA_Num_Levels[2,"n"]+up_woNA_Num_Levels[3,"n"]))
+df_NA_UP = df_lego %>% filter (is.na(unique_pieces))
+
+n_sup_100 = round(perc_up*nrow(df_NA_UP),0)
+n_inf_100 = nrow(df_NA_UP) - n_sup_100
+
+#Aplico la imputación de los valores NA:
+
+df_NA_UP_inf100 = head(df_NA_UP,n_sup_100)
+df_NA_UP_sup100 = tail (df_NA_UP,n_inf_100)
+
+df_NA_UP_inf100$unique_pieces <- replace(df_NA_UP_inf100$unique_pieces, is.na(df_NA_UP_inf100$unique_pieces),1)
+df_NA_UP_sup100$unique_pieces <- replace(df_NA_UP_sup100$unique_pieces, is.na(df_NA_UP_sup100$unique_pieces),100)
+
+#Creo con este dataframe intermedio, voy haciendo las imputaciones sobre todas las observaciones en función del ID:
+
+df_int_3 = df_lego
+
+df_int_3 <- df_int_3 %>%
+  left_join(df_NA_UP_inf100, by = "ID") %>%
+  mutate(unique_pieces = coalesce(unique_pieces.x, unique_pieces.y)) %>%
+  select(ID,unique_pieces)
+
+df_int_3 <- df_int_3 %>%
+  left_join(df_NA_UP_sup100, by = "ID") %>%
+  mutate(unique_pieces = coalesce(unique_pieces.x, unique_pieces.y)) %>%
+  select(ID,unique_pieces)
+
+df_int_3 <- df_int_3 %>% rename (UP_woNA = unique_pieces)
+df_lego = cbind (df_lego,UP_woNA=df_int_3$UP_woNA)
+df_lego = df_lego %>% select(-unique_pieces)
+
+df_lego$UP_woNA = as.character(df_lego$UP_woNA)
+
+#Renombro los valores de los niveles:
+
+df_lego$UP_woNA = replace(df_lego$UP_woNA, df_lego$UP_woNA == 1, "Menor a 100")
+df_lego$UP_woNA = replace(df_lego$UP_woNA, df_lego$UP_woNA == 100, "Mayor o igual a 100")
+
+#Saco el resultado
+
+UP_woNA_Num_Levels = distinct_function_count (df_lego,"UP_woNA")
+formattable(UP_woNA_Num_Levels)
+
+df_lego$UP_woNA = as.factor(df_lego$UP_woNA)
+
+summary(df_lego)
+
+
+```
+
+```{r 10. Tratamiento de los NAs - Variable Theme}
+
+Theme_Num_Levels = distinct_function_count (df_lego,"Theme")
+formattable(Theme_Num_Levels)
+
+#Imputo todos los NAs al nivel mayoritario, "City", que además, es el único que supera el 5% de los valores. El resto de los agrupo en un grupo que se llame "Others". Por tanto:
+
+df_lego$Theme <- replace (df_lego$Theme, is.na(df_lego$Theme),"City")
+
+Theme_Num_Levels = distinct_function_count (df_lego,"Theme")
+formattable(Theme_Num_Levels)
+
+df_lego <- df_lego %>% mutate(Theme = if_else(Theme != "City", "Other", Theme))
+
+Theme_Num_Levels = distinct_function_count (df_lego,"Theme")
+formattable(Theme_Num_Levels)
+
+df_lego$Theme = as.factor(df_lego$Theme)
+
+summary(df_lego)
+
+```
+
+```{r 11. Tratamiento de los NAs - Variable Pieces}
+
+Pieces_Num_Levels = distinct_function_count (df_lego,"Pieces")
+formattable(Pieces_Num_Levels)
+
+quantile (df_lego$Pieces,na.rm=TRUE)
+
+#En base a los cuartiles y dados los resultados anteriores, categorizo la variable en dos grupos: 1)Mayor de 250 piezas por observación y 2) Menor de 250 piezas por observación
+
+
+bucket_inf250 <- 0:249
+bucket_sup250 <- 250:(max(df_lego$Pieces,na.rm = T))
+
+df_lego<- df_lego %>% mutate(Pieces = if_else(Pieces %in% bucket_inf250, 1, Pieces))
+df_lego <- df_lego %>% mutate(Pieces = if_else(Pieces %in% bucket_sup250, 250, Pieces))
+
+#Se convierte la variable a factor:
+
+df_lego$Pieces = as.factor(df_lego$Pieces)
+
+Pieces_woNA_Num_Levels = distinct_function_count (df_lego,"Pieces")
+formattable(Pieces_woNA_Num_Levels)
+
+perc_Pieces=as.numeric(Pieces_woNA_Num_Levels[2,"n"]/(Pieces_woNA_Num_Levels[2,"n"]+Pieces_woNA_Num_Levels[3,"n"]))
+df_NA_Pieces = df_lego %>% filter (is.na(Pieces))
+
+n_sup_250 = round(perc_Pieces*nrow(df_NA_Pieces),0)
+n_inf_250 = nrow(df_NA_Pieces) - n_sup_250
+
+#Aplico la imputación de los valores NA:
+
+df_NA_Pieces_inf250 = head(df_NA_Pieces,n_sup_250)
+df_NA_Pieces_sup250 = tail (df_NA_Pieces,n_inf_250)
+
+df_NA_Pieces_inf250$Pieces <- replace(df_NA_Pieces_inf250$Pieces, is.na(df_NA_Pieces_inf250$Pieces),1)
+df_NA_Pieces_sup250$Pieces <- replace(df_NA_Pieces_sup250$Pieces, is.na(df_NA_Pieces_sup250$Pieces),250)
+
+#Creo con este dataframe intermedio, voy haciendo las imputaciones sobre todas las observaciones en función del ID:
+
+df_int_4 = df_lego
+
+df_int_4 <- df_int_4 %>%
+  left_join(df_NA_Pieces_inf250, by = "ID") %>%
+  mutate(Pieces = coalesce(Pieces.x, Pieces.y)) %>%
+  select(ID,Pieces)
+
+df_int_4 <- df_int_4 %>%
+  left_join(df_NA_Pieces_sup250, by = "ID") %>%
+  mutate(Pieces = coalesce(Pieces.x, Pieces.y)) %>%
+  select(ID,Pieces)
+
+df_int_4 <- df_int_4 %>% rename (Pieces_woNA = Pieces)
+df_lego = cbind (df_lego,Pieces_woNA=df_int_4$Pieces_woNA)
+df_lego = df_lego %>% select(-Pieces)
+
+df_lego$Pieces_woNA = as.character(df_lego$Pieces_woNA)
+
+#Renombro los valores de los niveles:
+
+df_lego$Pieces_woNA = replace(df_lego$Pieces_woNA, df_lego$Pieces_woNA == 1, "Menor a 250")
+df_lego$Pieces_woNA = replace(df_lego$Pieces_woNA, df_lego$Pieces_woNA == 250, "Mayor o igual a 250")
+
+#Saco el resultado
+
+Pieces_woNA_Num_Levels = distinct_function_count (df_lego,"Pieces_woNA")
+formattable(Pieces_woNA_Num_Levels)
+
+df_lego$Pieces_woNA = as.factor(df_lego$Pieces_woNA)
+
+summary(df_lego)
+
+
+
+```
+
+```{r 12. Tratamiento de los NAs - Variable Ages}
+
+Ages_Num_Levels = distinct_function_count (df_lego,"Ages")
+formattable (Ages_Num_Levels)
+
+#Dada la gran variedad de niveles que presenta esta variable y la dificultad para sectorizar estos en distintos niveles, se decide eliminar este variable del dataset. Por tanto:
+
+df_lego = df_lego %>% select (-Ages)
+
+```
+
+```{r 13. Tratamiento de los NAs - Variable Minifigures}
+
+MFigures_Num_Levels = distinct_function_count (df_lego,"Minifigures")
+formattable (MFigures_Num_Levels)
+
+#Al ser una variable de conteo y presentar tantos niveles, saco los cuartiles:
+
+quantile (df_lego$Minifigures,na.rm=TRUE)
+
+#Dado que el cuartíl 50%, se encuentra en el valor 3, sectorizo la variable en: observaciones que contienen 3 o menos minifiguras y observaciones que contienen más de 3 minifiguras.
+
+
+bucket_inf3 <- 1:3
+bucket_sup3 <- 4:(max(df_lego$Minifigures,na.rm = T))
+
+df_lego<- df_lego %>% mutate(Minifigures= if_else(Minifigures %in% bucket_inf3, 3, Minifigures))
+df_lego <- df_lego %>% mutate(Minifigures = if_else(Minifigures %in% bucket_sup3, 17, Minifigures))
+
+#Se convierte la variable a factor:
+
+df_lego$Minifigures = as.factor(df_lego$Minifigures)
+
+Minifigures_woNA_Num_Levels = distinct_function_count (df_lego,"Minifigures")
+formattable(Minifigures_woNA_Num_Levels)
+
+perc_Minifigures=as.numeric(Minifigures_woNA_Num_Levels[2,"n"]/(Minifigures_woNA_Num_Levels[2,"n"]+Minifigures_woNA_Num_Levels[3,"n"]))
+df_NA_Minifigures = df_lego %>% filter (is.na(Minifigures))
+
+n_sup_3 = round(perc_Minifigures*nrow(df_NA_Minifigures),0)
+n_inf_3 = nrow(df_NA_Minifigures) - n_sup_3
+
+#Aplico la imputación de los valores NA:
+
+df_NA_Minifigures_inf3 = head(df_NA_Minifigures,n_sup_3)
+df_NA_Minifigures_sup3= tail (df_NA_Minifigures,n_inf_3)
+
+df_NA_Minifigures_inf3$Minifigures <- replace(df_NA_Minifigures_inf3$Minifigures, is.na(df_NA_Minifigures_inf3$Minifigures),3)
+df_NA_Minifigures_sup3$Minifigures <- replace(df_NA_Minifigures_sup3$Minifigures, is.na(df_NA_Minifigures_sup3$Minifigures),17)
+
+#Creo con este dataframe intermedio, voy haciendo las imputaciones sobre todas las observaciones en función del ID:
+
+df_int_5 = df_lego
+
+df_int_5 <- df_int_5 %>%
+  left_join(df_NA_Minifigures_inf3, by = "ID") %>%
+  mutate(Minifigures = coalesce(Minifigures.x, Minifigures.y)) %>%
+  select(ID,Minifigures)
+
+df_int_5 <- df_int_5 %>%
+  left_join(df_NA_Minifigures_sup3, by = "ID") %>%
+  mutate(Minifigures = coalesce(Minifigures.x, Minifigures.y)) %>%
+  select(ID,Minifigures)
+
+df_int_5 <- df_int_5 %>% rename (Minifigures_woNA = Minifigures)
+df_lego = cbind (df_lego,Minifigures_woNA=df_int_5$Minifigures_woNA)
+df_lego = df_lego %>% select(-Minifigures)
+
+df_lego$Minifigures_woNA = as.character(df_lego$Minifigures_woNA)
+
+#Renombro los valores de los niveles:
+
+df_lego$Minifigures_woNA = replace(df_lego$Minifigures_woNA, df_lego$Minifigures_woNA == 3, "Menor o igual a 3")
+df_lego$Minifigures_woNA = replace(df_lego$Minifigures_woNA, df_lego$Minifigures_woNA == 17, "Mayor a 3")
+
+#Saco el resultado
+
+Minifigures_woNA_Num_Levels = distinct_function_count (df_lego,"Minifigures_woNA")
+formattable(Minifigures_woNA_Num_Levels)
+
+df_lego$Minifigures_woNA = as.factor(df_lego$Minifigures_woNA)
+
+summary(df_lego)
+
+
+```
+
+```{r 14. Tratamiento de los NAs - Variable Packaging}
+
+Packaging_Num_Levels = distinct_function_count (df_lego,"Packaging")
+formattable (Packaging_Num_Levels)
+
+#Parece que el nivel Box es mayoritariamente predominante, veamos el porcentaje que suma el resto
+
+number_NO_BOX = Packaging_Num_Levels %>% select (percentage) %>% filter(!is.na(Packaging) & Packaging != "Box")
+
+Total_Suma = sum(number_NO_BOX$percentage)
+
+#Y ahora sin considerar los valores NA:
+
+Perc_Pack = as.numeric(100*(Total_Suma / (Total_Suma+Packaging_Num_Levels[2,"percentage"])))
+Perc_Pack
+
+#Por tanto, sectorizo esta variable en dos: 1) Box (94%) y 2) Otros (6%), por tanto:
+
+df_NA_Pack = df_lego %>% filter (is.na(Packaging))
+
+n_94 = round(0.94*nrow(df_NA_Pack),0)
+n_6 = nrow(df_NA_Pack) - n_94
+
+df_NA_Pack_94 = head(df_NA_Pack,n_94)
+df_NA_Pack_6 = tail (df_NA_Pack,n_6)
+
+#Aplico la imputación de los valores NA:
+
+df_NA_Pack_94$Packaging <- replace(df_NA_Pack_94$Packaging, is.na(df_NA_Pack_94$Packaging),"Box")
+df_NA_Pack_6$Packaging <- replace(df_NA_Tamaño_6$Packaging, is.na(df_NA_Tamaño_6$Packaging),"Otros")
+
+df_int_6 = df_lego
+
+#Creo con este dataframe intermedio, voy haciendo las imputaciones sobre todas las observaciones en función del ID:
+
+df_int_6  <- df_int_6 %>%
+  left_join(df_NA_Pack_94, by = "ID") %>%
+  mutate(Packaging = coalesce(Packaging.x, Packaging.y)) %>%
+  select(ID,Packaging)
+
+df_int_6 <- df_int_6 %>%
+  left_join(df_NA_Pack_6, by = "ID") %>%
+  mutate(Packaging = coalesce(Packaging.x, Packaging.y)) %>%
+  select(ID,Packaging)
+
+df_int_6 <- df_int_6 %>% rename (Packaging_woNA = Packaging)
+df_lego = cbind (df_lego,Packaging_woNA=df_int_6$Packaging_woNA)
+df_lego = df_lego %>% select(-Packaging)
+
+df_lego <- df_lego %>% mutate(Packaging_woNA = if_else(Packaging_woNA != "Box" & Packaging_woNA != "Otros" , "Otros", Packaging_woNA))
+
+#Declaro la nueva variable como factor
+df_lego$Packaging_woNA = as.factor(df_lego$Packaging_woNA)
+
+#Saco el resultado
+
+Packaging_woNA_Num_Levels = distinct_function_count (df_lego,"Packaging_woNA")
+formattable(Packaging_woNA_Num_Levels)
+
+summary(df_lego)
+
+
+```
+
+```{r 15. Tratamiento de los NAs - Variable Availability}
+
+Availability_Num_Levels = distinct_function_count (df_lego,"Availability")
+formattable (Availability_Num_Levels)
+
+#En base a los resultados, agrupo los valores en dos niveles: 1) Retail y 2) Exclusive / Not sold, de modo que:
+
+df_lego <- df_lego %>% mutate(Availability	 = if_else(Availability	 == "Retail - limited" , "Retail", Availability))
+
+df_lego <- df_lego %>% mutate(Availability	 = if_else(Availability	 != "Retail" & !is.na(Availability), "Exclusive / Not sold", Availability))
+
+Availability_Num_Levels = distinct_function_count (df_lego,"Availability")
+formattable (Availability_Num_Levels)
+
+#Imputo los valores NAs. En base a los resultados de arriba, los NA se reparten del siguiente modo: Retail (91%) y Exclusive / Not sold (9%)
+
+df_NA_Av = df_lego %>% filter (is.na(Availability))
+
+n_91 = round(0.91*nrow(df_NA_Av),0)
+n_9 = nrow(df_NA_Av) - n_91
+
+df_NA_Av_91 = head(df_NA_Av,n_91)
+df_NA_Av_9 = tail (df_NA_Av,n_9)
+
+#Aplico la imputación de los valores NA:
+
+df_NA_Av_91$Availability <- replace(df_NA_Av_91$Availability, is.na(df_NA_Av_91$Availability),"Retail")
+df_NA_Av_9$Availability <- replace(df_NA_Av_9$Availability, is.na(df_NA_Av_9$Availability),"Exclusive / Not sold")
+
+df_int_7 = df_lego
+
+#Creo con este dataframe intermedio, voy haciendo las imputaciones sobre todas las observaciones en función del ID:
+
+df_int_7  <- df_int_7 %>%
+  left_join(df_NA_Av_91, by = "ID") %>%
+  mutate(Availability = coalesce(Availability.x, Availability.y)) %>%
+  select(ID,Availability)
+
+df_int_7 <- df_int_7 %>%
+  left_join(df_NA_Av_9, by = "ID") %>%
+  mutate(Availability = coalesce(Availability.x, Availability.y)) %>%
+  select(ID,Availability)
+
+df_int_7 <- df_int_7 %>% rename (Availability_woNA =Availability)
+df_lego = cbind (df_lego,Availability_woNA=df_int_7$Availability_woNA)
+df_lego = df_lego %>% select(-Availability)
+
+#Declaro la nueva variable como factor
+df_lego$Availability_woNA = as.factor(df_lego$Availability_woNA)
+
+#Saco el resultado
+
+Availability_woNA_Num_Levels = distinct_function_count (df_lego,"Availability_woNA")
+formattable(Availability_woNA_Num_Levels)
+
+#Ya solo quedan valores NAs en las variables numéricas, se comprueba:
+
+df_lego_Detalle <- skim(df_lego)
+
+df_lego_missing <- df_lego_Detalle %>% 
+  mutate(n_missing_perc = 100 * round(1-complete_rate,5)) %>%
+  select(skim_type, skim_variable, n_missing, n_missing_perc) %>% 
+  arrange(desc(n_missing))
+
+formattable(df_lego_missing)
+
+df_lego_Detalle
+
+```
+
+```{r 16. Tratamiento de los NAs - Variables numéricas}
+
+#Las variables numéricas las voya  imputar directamente por medio de la variable mice, de modo que:
+
+cart_imp <- mice(df_lego, meth = "cart", minbucket = 6)
+df_legoDEF <- complete(cart_imp)
+df_legoDEF_Detalle <- skim(df_legoDEF)
+df_legoDEF_Detalle
+
+#Se observa que ya no hay ningún valor ausente por imputar.
+
+```
+
+```{r 16. Correlación variables numéricas}
+
+#Analizo la correlación entre las varibles numéricas, de modo que:
+
+df_num <- select_if(df_legoDEF, negate(is.factor)) # Nos quedamos con todas las variables que no son factor
+df_num$ID <- NULL # eliminamos esta variable
+
+correlacion_pearson_df = cor(df_num, use = "pairwise.complete.obs")
+
+corrplot(correlacion_pearson_df,
+         tl.cex=1.2,
+         tl.offset = 1.2,
+         type="upper",
+         method = "circle", 
+         addCoef.col="grey", 
+         order = "AOE", 
+         number.cex=1) # visualización de la matriz
+
+#Existe una fuerte relación entre la variable "Precio" y la variable "Precio_Amazon"
+
+#Confirmamos esta relación llevando a cabo una regresión lineal simple.
+
+#¿Y si precio es el mismo precio que amazon pero aplicandole algun tipo de impuesto. Supongo en la regresión lineal sin intercepto
+
+Precio_VS_Precio_Amazon <- lm(Precio~Precio_Amazon-1, data=df_legoDEF)
+summary(Precio_VS_Precio_Amazon)
+
+#R^2 = 0.8294
+#Coeficiente significativo al 99%
+
+#Tiene muy buena pinta la regresión. La represento gráficamente:
+
+Coef = as.numeric(Precio_VS_Precio_Amazon[["coefficients"]][["Precio_Amazon"]])
+print(Coef)
+
+#El coeficiente es muy próximo a 1. Esto supone que Precio = Precio_Amazón, por lo que podría prescindir de una de las variables.
+
+plot(x=df_legoDEF$Precio_Amazon, y=df_legoDEF$Precio, main="Relación Precios", pch=20, col = "red", xlab="Precio_Amazon", ylab="Precio")
+points(Coef*df_legoDEF$Precio_Amazon, fitted(Precio_VS_Precio_Amazon), col='blue', pch=20, type = "l")
+
+#A pesar de que se muestran varios outliers, la relación lineal entre ambas variables es evidente.
+
+#Como comentado arriba, dado que el coeficiente es muy próximo a 1, se puede eliminar uan de las dos variables. Se opta por la variable "Precio"
+
+df_legoDEF = df_legoDEF %>% select(-Precio)
+
+
+```
+
+```{r 17. Precios medios por año}
+
+#Creo un gráfico donde se visualice el precio medio de Amazon por cada año
+
+df_legoDEF_Media_Amazon <- df_legoDEF %>%
+  group_by(Año_woNA) %>%
+  summarise(Precio_Amazon = mean(Precio_Amazon, na.rm = TRUE))
+
+ggplot(df_legoDEF_Media_Amazon, aes(x = Año_woNA, y = Precio_Amazon)) +
+  geom_col(group = 1, fill = c("Navy","Yellow","darkGreen")) +
+  coord_flip() +
+  labs(x = 'Año_woNA', y = 'Precio_Amazon', title = 'Media de precios por año') +
+  theme_bw()
+
+
+```
+
+```{r 18. Precios medios por año y por los distintos niveles de cada una de las variables piezas}
+
+# Precios medios por año y por los distintos niveles de cada una de las variables piezas (Unique_Pieces y Pieces )
+
+# Comienzo con el diseño del gráfico en función de los dos niveles de la variable "Unique_Pieces": Mayor o igual a 100 ó Menor a 100:
+
+UP_Amazon_Media <- df_legoDEF %>%
+  group_by(UP_woNA, Año_woNA) %>%
+  summarise(PrecioMedio = mean(Precio_Amazon, na.rm = TRUE))
+
+UP_Amazon_Media = setorder(UP_Amazon_Media, -UP_woNA, Año_woNA)
+
+# Representamos gráficamente:
+
+UP_Amazon_Media_sub <- filter(UP_Amazon_Media, UP_woNA == 'Menor a 100')
+UP_Amazon_Media_sub_2 <- filter(UP_Amazon_Media, UP_woNA == 'Mayor o igual a 100')
+
+UPMenor100_Amazon_Media_gr <-  ggplot(UP_Amazon_Media_sub, aes( x = Año_woNA, y = PrecioMedio)) +
+  geom_col(group = 1, fill = 'darkred') +
+  coord_flip() +
+  facet_wrap( ~ UP_woNA ) +
+  labs(x = 'Año_woNA', y = 'PrecioMedio') +
+  theme_bw()
+
+UPMayor100_Amazon_Media_gr <-  ggplot(UP_Amazon_Media_sub_2, aes( x = Año_woNA, y = PrecioMedio)) +
+  geom_col(group = 1, fill = 'Navy') +
+  coord_flip() +
+  facet_wrap( ~ UP_woNA ) +
+  labs(x = 'Año_woNA', y = 'PrecioMedio') +
+  theme_bw()
+
+grid.arrange(UPMenor100_Amazon_Media_gr, UPMayor100_Amazon_Media_gr, nrow =2,ncol = 1, top = "Precios medios por año y por piezas únicas")
+
+#Parece que en el año 2020, los precios aumentaron.
+
+#Continuo con la variable "Pieces", pero en este caso, voy a cambiar la estructura, poniendo los años en la variable x, de mos que:
+
+#El diseño del gráfico en función de los tres niveles de la variable "Año_woNa": 2018, 2019 y 2020:
+
+AñosPieces_Amazon_Media <- df_legoDEF %>%
+  group_by(Año_woNA, Pieces_woNA) %>%
+  summarise(PrecioMedio = mean(Precio_Amazon, na.rm = TRUE))
+
+AñosPieces_Amazon_Media = setorder(AñosPieces_Amazon_Media, Año_woNA, -Pieces_woNA)
+
+# Representamos gráficamente:
+
+Año_Amazon_Media_sub <- filter(AñosPieces_Amazon_Media, Año_woNA == '2018')
+Año_Amazon_Media_sub_2 <- filter(AñosPieces_Amazon_Media, Año_woNA == '2019')
+Año_Amazon_Media_sub_3 <- filter(AñosPieces_Amazon_Media, Año_woNA == '2020')
+
+Año2018_Amazon_Media_sub_gr <-  ggplot(Año_Amazon_Media_sub, aes( x = Pieces_woNA, y = PrecioMedio)) +
+  geom_col(group = 1, fill = 'darkred') +
+  coord_flip() +
+  facet_wrap( ~ Año_woNA ) +
+  labs(x = 'Pieces_woNA', y = 'PrecioMedio') +
+  theme_bw()
+
+Año2019_Amazon_Media_sub_gr <-  ggplot(Año_Amazon_Media_sub_2, aes( x = Pieces_woNA, y = PrecioMedio)) +
+  geom_col(group = 1, fill = 'darkgreen') +
+  coord_flip() +
+  facet_wrap( ~ Año_woNA ) +
+  labs(x = 'Pieces_woNA', y = 'PrecioMedio') +
+  theme_bw()
+
+Año2020_Amazon_Media_sub_gr <-  ggplot(Año_Amazon_Media_sub_3, aes( x = Pieces_woNA, y = PrecioMedio)) +
+  geom_col(group = 1, fill = 'Navy') +
+  coord_flip() +
+  facet_wrap( ~ Año_woNA ) +
+  labs(x = 'Pieces_woNA', y = 'PrecioMedio') +
+  theme_bw()
+
+grid.arrange(Año2018_Amazon_Media_sub_gr, Año2019_Amazon_Media_sub_gr,Año2020_Amazon_Media_sub_gr, nrow =3,ncol = 1, top = "Precios medios por piezas y por años")
+
+#Como no puede ser de otra forma, en todos los años, el precio medio es mayor en el nivel "mayor o igual a 250"
+
+
+```
+```{r Relcación Tamaño, Packaging, Availability y Minifigures}
+
+#Quiero relacionar el tamaño con el packaging para comprobar si tienen una relación o no. Para ello uso la sigueinte función:
+
+bar_target_var_plot <- function(data, var, target_var) {
+  var <- as.symbol(var)
+  target_var <- as.symbol(target_var)
+
+# Se saca el % por nivel de variable categórica en cada variable
+  
+  plot_data <- data %>% 
+    count(!!var, !!target_var) %>% 
+    group_by(!!var) %>% 
+    mutate(percent = n / sum(n))
+  
+  g <- ggplot(plot_data, aes(x = reorder(!!var, !!var, length, decreasing = TRUE), y = percent, fill = !!target_var)) +
+    geom_bar(stat = "identity") +
+    geom_label(aes(label = scales::percent(percent)),
+               position = position_stack(vjust = 0.5), color = "red",
+               show.legend = FALSE) +
+    ylab("Porcentaje") +
+    xlab ("Variable")
+  
+  return(g)
+}
+
+#Una vez diseñada la función anterior, aplico para llevar a cabo la relación Tamaño y Packaging:
+
+Bar_Tamaño_Packaging <- bar_target_var_plot(df_legoDEF, "Tamaño_woNA", target_var="Packaging_woNA")
+Bar_Tamaño_Packaging
+
+#Observo que para los productos con tamaño pequeño, principalmente se empaquetan en cajas.
+
+# Aprovecho esta misma función para hacer una compativa con las variables: Availability - Tamaño y Availability - Packaging
+
+Bar_Availability_Packaging <- bar_target_var_plot(df_legoDEF, "Availability_woNA", target_var="Packaging_woNA")
+Bar_Availability_Packaging
+
+Bar_Tamaño_Availability <- bar_target_var_plot(df_legoDEF, "Tamaño_woNA", target_var="Availability_woNA")
+Bar_Tamaño_Availability
+
+#Como no puede ser de otra manera, la mayor parte de los productos pequeño se empaquetan en cajas y se venden via retail.
+
+#La lógica me hace pensar que los que contienen mayor número de minifigures, también tienen tamaño pequeño y se compran via retail. Comprobemoslos:
+
+Bar_Minifigures_Packaging <- bar_target_var_plot(df_legoDEF, "Minifigures_woNA", target_var="Packaging_woNA")
+Bar_Minifigures_Packaging
+
+Bar_Tamaño_Minifigures <- bar_target_var_plot(df_legoDEF, "Tamaño_woNA", target_var="Minifigures_woNA")
+Bar_Tamaño_Minifigures
+
+# Los productos pequeños contienen menos de 3 minifiguras.
+
+
+```
+
+```{r Evaluación variable peso}
+
+#Cojo solo los productos mayor de 30 en Precio_Amazon:
+
+Precio_Mayor_30 <- df_legoDEF %>% filter (Precio_Amazon >30)
+
+# Representamos gráficamente
+
+Tamaño1 = filter(Precio_Mayor_30, Tamaño_woNA == 'Small')
+Tamaño2 = filter(Precio_Mayor_30, Tamaño_woNA == 'Large')
+
+Peso_gr <-  ggplot(Tamaño1, aes( x = Packaging_woNA, y = Weight)) +
+  geom_violin(fill = 'darkred') +
+  coord_flip() +
+  facet_wrap( ~ Tamaño_woNA + Availability_woNA) +
+  labs(x = 'Empaquetado', y = 'Peso') +
+  theme_bw()
+
+Peso_gr_2 <-  ggplot(Tamaño2, aes( x = Packaging_woNA, y = Weight)) +
+  geom_violin(fill = 'darkred') +
+  coord_flip() +
+  facet_wrap( ~ Tamaño_woNA + Availability_woNA) +
+  labs(x = 'Empaquetado', y = 'Peso') +
+  theme_bw()
+
+grid.arrange(Peso_gr, Peso_gr_2, nrow =2,ncol = 1, top = "Pesos medios por piezas y por años")
+
+#Concluyo que para productos que tienen un precio mayor de 30, los más pesados son:
+
+# - Se venden en cajas, son exclusivos y de tamño pequeño.
+# - También hay productos pesados de tamaño grande, exclusivos y que no se empaquetan en cajas
+
+# POSDATA: LAS CONCLUSIONES INDICADAS EN BASE A RESULTADOS PUEDEN CAMBIAR DEBIDO A QUE LA ESTIAMACIÓN MICE USA UNA DISTRIBUCIÓN ALEATORIA
+
+```
+
+
+
